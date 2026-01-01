@@ -1,0 +1,187 @@
+# Mastodon Backup Script Configuration
+# =====================================
+# Copy this file to backup.conf and customize for your environment:
+#   cp backup.conf.example backup.conf
+
+# SECURITY NOTE: This file contains paths and bucket names but NO secrets.
+# Secrets (B2 credentials) are stored in rclone configuration (~/.config/rclone/rclone.conf)
+
+# ============================================================================
+# Directory Configuration
+# ============================================================================
+
+# Mastodon installation directory
+# Default: /home/mastodon/live
+MASTODON_HOME="/home/mastodon/live"
+
+# Mastodon git branch name (for reference only, not used in backup)
+# Default: master
+MASTODON_BRANCH="master"
+
+# Backup storage directory (local backups are stored here)
+# This directory will be created automatically if it doesn't exist
+# Default: /home/mastodon/backups
+BACKUP_DIR="/home/mastodon/backups"
+
+# ============================================================================
+# Database Configuration
+# ============================================================================
+
+# PostgreSQL database name
+# For Mastodon, this is typically "mastodon_production" or "postgres"
+# Default: postgres
+PG_DBNAME="postgres"
+
+# NOTE: PostgreSQL credentials are not needed here because we use 'sudo -u postgres'
+# which relies on peer authentication.
+
+# ============================================================================
+# Backblaze B2 Configuration (via rclone)
+# ============================================================================
+
+# rclone remote name for daily backups
+# This must match the remote name you configured in 'rclone config'
+# Example: If you named your B2 remote "myb2" in rclone, use "myb2" here
+# Default: remote_b2_account_credentials
+RCLONE_REMOTE_DAILY="remote_b2_account_credentials"
+
+# rclone remote name for monthly backups (usually same as daily)
+# You can use a different B2 account/remote if desired
+# Default: remote_b2_account_credentials
+RCLONE_REMOTE_MONTHLY="remote_b2_account_credentials"
+
+# B2 bucket name for daily backups
+# This bucket must exist in your Backblaze B2 account
+# Default: daily-db-backup
+B2_BUCKET_DAILY="daily-db-backup"
+
+# B2 bucket name for monthly backups (backups created on the 1st of each month)
+# This bucket must exist in your Backblaze B2 account
+# Default: monthly-db-backup
+B2_BUCKET_MONTHLY="monthly-db-backup"
+
+# ============================================================================
+# Retention Policy
+# ============================================================================
+
+# Number of days to keep backups on Backblaze B2 (remote)
+# Backups older than this will be automatically deleted
+# Default: 3 days
+REMOTE_RETENTION_DAYS=3
+
+# Number of days to keep backups locally
+# Local backups older than this will be automatically deleted
+# Default: 7 days
+LOCAL_RETENTION_DAYS=7
+
+# ============================================================================
+# rclone Setup Instructions
+# ============================================================================
+#
+# Before using this backup script, you must configure rclone with Backblaze B2.
+# Follow these steps:
+#
+# 1. Install rclone (if not already installed):
+#    curl https://rclone.org/install.sh | sudo bash
+#    # or use your package manager:
+#    # sudo apt install rclone  (Debian/Ubuntu)
+#
+# 2. Get your Backblaze B2 credentials:
+#    - Log in to https://www.backblaze.com/
+#    - Go to "App Keys" in the B2 Cloud Storage section
+#    - Create a new application key with access to your backup buckets
+#    - IMPORTANT: Save the "Application Key" immediately - it's only shown once!
+#    - Note down:
+#      * Account ID (or Application Key ID)
+#      * Application Key (secret)
+#
+# 3. Configure rclone:
+#    rclone config
+#
+#    Follow the interactive prompts:
+#    - Choose "n" for new remote
+#    - Name: remote_b2_account_credentials (or your preferred name)
+#    - Storage: Select "b2" (Backblaze B2)
+#    - Account ID: Paste your Account ID or Application Key ID
+#    - Application Key: Paste your Application Key
+#    - Accept defaults for remaining options
+#
+# 4. Create buckets in Backblaze B2:
+#    - Go to https://www.backblaze.com/b2/buckets.html
+#    - Create two buckets (or use existing ones):
+#      * daily-db-backup (for daily backups)
+#      * monthly-db-backup (for monthly archival backups)
+#    - Bucket settings:
+#      * Files: Private
+#      * Encryption: Server-Side Encryption (recommended)
+#      * Object Lock: Optional (for compliance)
+#
+# 5. Verify rclone configuration:
+#    # List configured remotes
+#    rclone listremotes
+#    # Should show: remote_b2_account_credentials:
+#
+#    # List buckets
+#    rclone lsd remote_b2_account_credentials:
+#    # Should show your buckets: daily-db-backup, monthly-db-backup
+#
+#    # Test upload (optional)
+#    echo "test" > /tmp/test.txt
+#    rclone copy /tmp/test.txt remote_b2_account_credentials:/daily-db-backup/
+#    rclone ls remote_b2_account_credentials:/daily-db-backup/
+#    # Should show: test.txt
+#    rclone delete remote_b2_account_credentials:/daily-db-backup/test.txt
+#    rm /tmp/test.txt
+#
+# 6. Update this configuration file:
+#    - Copy this file: cp backup.conf.example backup.conf
+#    - Edit backup.conf and set RCLONE_REMOTE_DAILY and RCLONE_REMOTE_MONTHLY
+#      to match the remote name you configured in step 3
+#    - Update bucket names if you used different names in step 4
+#
+# ============================================================================
+# rclone Configuration File Location
+# ============================================================================
+#
+# rclone stores its configuration in:
+#   ~/.config/rclone/rclone.conf
+#
+# Example rclone.conf for Backblaze B2:
+#
+#   [remote_b2_account_credentials]
+#   type = b2
+#   account = <your_account_id_or_key_id>
+#   key = <your_application_key>
+#
+# IMPORTANT: Keep this file secure! It contains your B2 credentials.
+# Recommended permissions: chmod 600 ~/.config/rclone/rclone.conf
+#
+# ============================================================================
+# Security Best Practices
+# ============================================================================
+#
+# 1. File Permissions:
+#    chmod 600 backup.conf  # Only owner can read/write
+#    chmod 700 backup.sh    # Only owner can execute
+#    chmod 600 ~/.config/rclone/rclone.conf  # Only owner can read rclone config
+#
+# 2. Backblaze B2 Application Keys:
+#    - Use restrictive App Keys with access ONLY to backup buckets
+#    - Enable IP restrictions if your server has a static IP
+#    - Rotate keys periodically
+#
+# 3. Bucket Lifecycle Rules:
+#    - Consider enabling B2 lifecycle rules for automatic cleanup
+#    - This provides redundancy with the script's cleanup mechanism
+#
+# 4. Encryption:
+#    - Enable Server-Side Encryption in B2 bucket settings
+#    - Alternatively, use rclone's built-in encryption (rclone crypt)
+#
+# 5. Monitoring:
+#    - Check backup logs regularly
+#    - Set up monitoring/alerts for backup failures
+#    - Periodically test restoration from backups
+#
+# ============================================================================
+

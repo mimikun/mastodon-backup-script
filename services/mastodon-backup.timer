@@ -1,0 +1,23 @@
+[Unit]
+Description=Mastodon Database Backup Timer
+Documentation=https://github.com/mimikun/mastodon-backup-script
+Requires=mastodon-backup.service
+
+[Timer]
+# Run daily at 2:00 AM (system local time)
+OnCalendar=*-*-* 02:00:00
+
+# Run immediately if the system was off at the scheduled time
+Persistent=true
+
+# Add random delay of 0-300 seconds (5 minutes) to avoid load spikes
+# if multiple systems are backing up simultaneously
+RandomizedDelaySec=300
+
+# Accuracy: allow systemd to batch timer activations within 1 minute window
+# for better power management (useful for laptops/VPS)
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
+
