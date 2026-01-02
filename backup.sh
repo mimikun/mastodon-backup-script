@@ -214,15 +214,15 @@ backup_postgresql() {
     echo "Output file: ${backup_file}" >&2
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        echo "[DRY-RUN] Would execute: sudo -u postgres pg_dump -v -F c \"dbname=${PG_DBNAME}\" > \"${backup_file}\"" >&2
+        echo "[DRY-RUN] Would execute: pg_dump -v -F c \"dbname=${PG_DBNAME}\" > \"${backup_file}\"" >&2
         # Create empty file for dry-run testing
         touch "${backup_file}"
         return 0
     fi
 
     # Execute PostgreSQL backup directly (no eval!)
-    # Use tee with sudo to properly handle redirection
-    if sudo -u postgres pg_dump -v -F c "dbname=${PG_DBNAME}" | tee "${backup_file}" > /dev/null; then
+    # Use tee to properly handle redirection
+    if pg_dump -v -F c "dbname=${PG_DBNAME}" | tee "${backup_file}" > /dev/null; then
         echo "PostgreSQL backup completed successfully" >&2
         return 0
     else

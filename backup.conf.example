@@ -20,8 +20,8 @@ MASTODON_BRANCH="master"
 
 # Backup storage directory (local backups are stored here)
 # This directory will be created automatically if it doesn't exist
-# Default: /home/mastodon/backups
-BACKUP_DIR="/home/mastodon/backups"
+# Default: /var/lib/postgresql/backups
+BACKUP_DIR="/var/lib/postgresql/backups"
 
 # ============================================================================
 # Database Configuration
