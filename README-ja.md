@@ -103,7 +103,7 @@ rm /tmp/test.txt
 
 ```bash
 # リポジトリのクローン
-cd /home/mastodon/
+cd /var/lib/postgresql/
 git clone https://github.com/mimikun/mastodon-backup-script.git
 cd mastodon-backup-script
 
@@ -196,7 +196,7 @@ systemctl list-timers --all | grep mastodon-backup
 | オプション | 説明 | デフォルト |
 |--------|-------------|---------|
 | `MASTODON_HOME` | Mastodon インストールディレクトリ | `/home/mastodon/live` |
-| `BACKUP_DIR` | ローカルバックアップ保存ディレクトリ | `/home/mastodon/backups` |
+| `BACKUP_DIR` | ローカルバックアップ保存ディレクトリ | `/var/lib/postgresql/backups` |
 | `PG_DBNAME` | PostgreSQL データベース名 | `postgres` |
 | `RCLONE_REMOTE_DAILY` | 日次バックアップ用 rclone リモート | `remote_b2_account_credentials` |
 | `RCLONE_REMOTE_MONTHLY` | 月次バックアップ用 rclone リモート | `remote_b2_account_credentials` |
@@ -312,9 +312,7 @@ sudo systemctl start redis
 **解決方法**:
 
 ```bash
-# PostgreSQL バックアップ用（postgres ユーザーに sudo が必要）
-sudo visudo
-# 追加: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
+# スクリプトはpostgresユーザーとして実行されるため、pg_dump用のsudo設定は不要
 
 # スクリプト実行用
 chmod 700 backup.sh
@@ -372,15 +370,15 @@ sudo systemctl status mastodon-backup.service -l
 sudo journalctl -u mastodon-backup.service --no-pager
 
 # ファイルパーミッションを確認
-ls -la /home/mastodon/mastodon-backup-script/backup.sh
+ls -la /var/lib/postgresql/mastodon-backup-script/backup.sh
 # 実行可能であるべき: -rwx------
 
 # サービスファイル内の User/Group を確認
 sudo cat /etc/systemd/system/mastodon-backup.service | grep -E "User|Group"
-# Mastodon ユーザーと一致するべき
+# postgresユーザーであるべき
 
 # サービスユーザーとしてスクリプトを手動でテスト
-sudo -u mastodon /home/mastodon/mastodon-backup-script/backup.sh --dry-run
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 ```
 
 ## セキュリティのベストプラクティス
