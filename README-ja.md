@@ -102,8 +102,9 @@ rm /tmp/test.txt
 ### 3. クローンと設定
 
 ```bash
-# リポジトリのクローン
-cd /home/mastodon/
+# postgresユーザーとしてリポジトリをクローン
+sudo -u postgres bash
+cd /var/lib/postgresql/
 git clone https://github.com/mimikun/mastodon-backup-script.git
 cd mastodon-backup-script
 
@@ -117,16 +118,23 @@ nano backup.conf
 # パーミッションの設定
 chmod 600 backup.conf
 chmod 700 backup.sh
+
+# バックアップディレクトリが正しい権限で存在することを確認
+mkdir -p /var/lib/postgresql/backups
+chmod 700 /var/lib/postgresql/backups
+
+# postgresユーザーシェルを終了
+exit
 ```
 
 ### 4. バックアップのテスト
 
 ```bash
-# ドライランテスト（実際のバックアップ/アップロードなし）
-./backup.sh --dry-run
+# postgresユーザーとしてテスト
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 
 # 手動バックアップテスト（'_manual' サフィックス付きでバックアップを作成）
-./backup.sh --manual
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --manual
 ```
 
 ### 5. 自動バックアップのスケジュール設定（systemd タイマー）
@@ -135,6 +143,10 @@ chmod 700 backup.sh
 # systemd サービスとタイマーファイルのインストール
 sudo cp services/mastodon-backup.service /etc/systemd/system/
 sudo cp services/mastodon-backup.timer /etc/systemd/system/
+
+# 注意: サービスはpostgresユーザーとして実行されるため、rcloneが
+# postgresユーザー用に設定されていることを確認: sudo -u postgres rclone config
+# 上記のrclone設定セクションを参照
 
 # systemd をリロードして新しいファイルを認識させる
 sudo systemctl daemon-reload
@@ -195,8 +207,8 @@ systemctl list-timers --all | grep mastodon-backup
 
 | オプション | 説明 | デフォルト |
 |--------|-------------|---------|
-| `MASTODON_HOME` | Mastodon インストールディレクトリ | `/home/mastodon/live` |
-| `BACKUP_DIR` | ローカルバックアップ保存ディレクトリ | `/home/mastodon/backups` |
+| `MASTODON_HOME` | Mastodon インストールディレクトリ（参照のみ） | `/opt/mastodon/live` |
+| `BACKUP_DIR` | ローカルバックアップ保存ディレクトリ | `/var/lib/postgresql/backups` |
 | `PG_DBNAME` | PostgreSQL データベース名 | `postgres` |
 | `RCLONE_REMOTE_DAILY` | 日次バックアップ用 rclone リモート | `remote_b2_account_credentials` |
 | `RCLONE_REMOTE_MONTHLY` | 月次バックアップ用 rclone リモート | `remote_b2_account_credentials` |
@@ -312,12 +324,13 @@ sudo systemctl start redis
 **解決方法**:
 
 ```bash
-# PostgreSQL バックアップ用（postgres ユーザーに sudo が必要）
-sudo visudo
-# 追加: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
-
 # スクリプト実行用
 chmod 700 backup.sh
+chmod 700 /var/lib/postgresql/backups
+
+# postgresユーザーがファイルを所有していることを確認
+sudo chown -R postgres:postgres /var/lib/postgresql/mastodon-backup-script
+sudo chown -R postgres:postgres /var/lib/postgresql/backups
 ```
 
 ### バックアップ検証の失敗
@@ -372,15 +385,15 @@ sudo systemctl status mastodon-backup.service -l
 sudo journalctl -u mastodon-backup.service --no-pager
 
 # ファイルパーミッションを確認
-ls -la /home/mastodon/mastodon-backup-script/backup.sh
+ls -la /var/lib/postgresql/mastodon-backup-script/backup.sh
 # 実行可能であるべき: -rwx------
 
 # サービスファイル内の User/Group を確認
 sudo cat /etc/systemd/system/mastodon-backup.service | grep -E "User|Group"
-# Mastodon ユーザーと一致するべき
+# 表示されるべき内容: User=postgres, Group=postgres
 
 # サービスユーザーとしてスクリプトを手動でテスト
-sudo -u mastodon /home/mastodon/mastodon-backup-script/backup.sh --dry-run
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 ```
 
 ## セキュリティのベストプラクティス
@@ -493,4 +506,104 @@ ExecStart=/usr/bin/mail -s "Mastodon Backup %i" admin@example.com < /dev/null
 OnSuccess=mastodon-backup-notify@success.service
 OnFailure=mastodon-backup-notify@failure.service
 ```
+
+## mastodonユーザーからpostgresユーザーへの移行
+
+以前このスクリプトを `mastodon` ユーザーとして実行するようにインストールした場合、以下の手順で移行してください：
+
+### 移行手順
+
+1. **既存のタイマーとサービスを停止**
+   ```bash
+   sudo systemctl stop mastodon-backup.timer
+   sudo systemctl disable mastodon-backup.timer
+   ```
+
+2. **postgresユーザー用にrcloneを設定**
+   ```bash
+   # postgresユーザーに切り替え
+   sudo -u postgres bash
+
+   # rclone configを実行（同じB2認証情報を使用）
+   rclone config
+
+   # 設定を確認
+   rclone listremotes
+   rclone lsd remote_b2_account_credentials:
+
+   exit
+   ```
+
+3. **スクリプトをpostgresユーザーディレクトリに移動**
+   ```bash
+   # ディレクトリ構造を作成
+   sudo mkdir -p /var/lib/postgresql/mastodon-backup-script
+   sudo mkdir -p /var/lib/postgresql/backups
+
+   # スクリプトファイルをコピー
+   sudo cp -r /home/mastodon/mastodon-backup-script/* /var/lib/postgresql/mastodon-backup-script/
+
+   # 所有者を設定
+   sudo chown -R postgres:postgres /var/lib/postgresql/mastodon-backup-script
+   sudo chown -R postgres:postgres /var/lib/postgresql/backups
+
+   # パーミッションを設定
+   sudo chmod 700 /var/lib/postgresql/mastodon-backup-script/backup.sh
+   sudo chmod 600 /var/lib/postgresql/mastodon-backup-script/backup.conf
+   sudo chmod 700 /var/lib/postgresql/backups
+   ```
+
+4. **backup.confを更新**
+   ```bash
+   sudo -u postgres nano /var/lib/postgresql/mastodon-backup-script/backup.conf
+   # BACKUP_DIRを以下に更新: /var/lib/postgresql/backups
+   ```
+
+5. **systemdサービスファイルを更新**
+   ```bash
+   # 更新されたサービスファイルをコピー
+   sudo cp /var/lib/postgresql/mastodon-backup-script/services/mastodon-backup.service /etc/systemd/system/
+
+   # systemdをリロード
+   sudo systemctl daemon-reload
+   ```
+
+6. **移行をテスト**
+   ```bash
+   # ドライランテスト
+   sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
+
+   # 手動テストバックアップ
+   sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --manual
+   ```
+
+7. **タイマーを再度有効化して起動**
+   ```bash
+   sudo systemctl enable mastodon-backup.timer
+   sudo systemctl start mastodon-backup.timer
+
+   # ステータスを確認
+   sudo systemctl status mastodon-backup.timer
+   systemctl list-timers --all | grep mastodon-backup
+   ```
+
+8. **古いインストールをクリーンアップ（オプション）**
+   ```bash
+   # 新しいセットアップが正しく動作することを確認した後
+   sudo rm -rf /home/mastodon/mastodon-backup-script
+   sudo rm -rf /home/mastodon/backups  # 重要なバックアップを移行した場合のみ
+
+   # sudoers設定が存在する場合は削除
+   sudo visudo
+   # 以下の行を削除: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
+   ```
+
+### 確認チェックリスト
+
+- [ ] postgresユーザーがrclone設定にアクセスできる
+- [ ] postgresユーザーが `/var/lib/postgresql/backups` に読み書きできる
+- [ ] sudoエラーなしでテストバックアップが実行される
+- [ ] PostgreSQLとRedisの両方のバックアップが正常に完了する
+- [ ] ファイルがB2に正しくアップロードされる
+- [ ] タイマーがスケジュールされアクティブである
 

@@ -10,9 +10,9 @@
 # Directory Configuration
 # ============================================================================
 
-# Mastodon installation directory
-# Default: /home/mastodon/live
-MASTODON_HOME="/home/mastodon/live"
+# Mastodon installation directory (for reference only, not used in backup)
+# Default: /opt/mastodon/live
+MASTODON_HOME="/opt/mastodon/live"
 
 # Mastodon git branch name (for reference only, not used in backup)
 # Default: master
@@ -20,8 +20,8 @@ MASTODON_BRANCH="master"
 
 # Backup storage directory (local backups are stored here)
 # This directory will be created automatically if it doesn't exist
-# Default: /home/mastodon/backups
-BACKUP_DIR="/home/mastodon/backups"
+# Default: /var/lib/postgresql/backups
+BACKUP_DIR="/var/lib/postgresql/backups"
 
 # ============================================================================
 # Database Configuration
@@ -32,8 +32,8 @@ BACKUP_DIR="/home/mastodon/backups"
 # Default: postgres
 PG_DBNAME="postgres"
 
-# NOTE: PostgreSQL credentials are not needed here because we use 'sudo -u postgres'
-# which relies on peer authentication.
+# NOTE: PostgreSQL credentials are not needed here because the script runs as
+# the postgres user, which relies on peer authentication.
 
 # ============================================================================
 # Backblaze B2 Configuration (via rclone)

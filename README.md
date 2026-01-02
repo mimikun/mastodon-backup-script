@@ -102,8 +102,9 @@ rm /tmp/test.txt
 ### 3. Clone and Configure
 
 ```bash
-# Clone repository
-cd /home/mastodon/
+# Clone repository as postgres user
+sudo -u postgres bash
+cd /var/lib/postgresql/
 git clone https://github.com/mimikun/mastodon-backup-script.git
 cd mastodon-backup-script
 
@@ -117,16 +118,23 @@ nano backup.conf
 # Set permissions
 chmod 600 backup.conf
 chmod 700 backup.sh
+
+# Ensure backup directory exists with correct permissions
+mkdir -p /var/lib/postgresql/backups
+chmod 700 /var/lib/postgresql/backups
+
+# Exit postgres user shell
+exit
 ```
 
 ### 4. Test Backup
 
 ```bash
-# Dry-run test (no actual backup/upload)
-./backup.sh --dry-run
+# Test as postgres user
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 
 # Manual backup test (creates backup with '_manual' suffix)
-./backup.sh --manual
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --manual
 ```
 
 ### 5. Schedule Automatic Backups (systemd timer)
@@ -135,6 +143,10 @@ chmod 700 backup.sh
 # Install systemd service and timer files
 sudo cp services/mastodon-backup.service /etc/systemd/system/
 sudo cp services/mastodon-backup.timer /etc/systemd/system/
+
+# Note: The service runs as postgres user, so ensure rclone is configured
+# for the postgres user: sudo -u postgres rclone config
+# See rclone configuration section above
 
 # Reload systemd to recognize new files
 sudo systemctl daemon-reload
@@ -195,8 +207,8 @@ Options:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `MASTODON_HOME` | Mastodon installation directory | `/home/mastodon/live` |
-| `BACKUP_DIR` | Local backup storage directory | `/home/mastodon/backups` |
+| `MASTODON_HOME` | Mastodon installation directory (reference only) | `/opt/mastodon/live` |
+| `BACKUP_DIR` | Local backup storage directory | `/var/lib/postgresql/backups` |
 | `PG_DBNAME` | PostgreSQL database name | `postgres` |
 | `RCLONE_REMOTE_DAILY` | rclone remote for daily backups | `remote_b2_account_credentials` |
 | `RCLONE_REMOTE_MONTHLY` | rclone remote for monthly backups | `remote_b2_account_credentials` |
@@ -312,12 +324,13 @@ sudo systemctl start redis
 **Solution**:
 
 ```bash
-# For PostgreSQL backup (requires sudo for postgres user)
-sudo visudo
-# Add: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
-
 # For script execution
 chmod 700 backup.sh
+chmod 700 /var/lib/postgresql/backups
+
+# Ensure postgres user owns the files
+sudo chown -R postgres:postgres /var/lib/postgresql/mastodon-backup-script
+sudo chown -R postgres:postgres /var/lib/postgresql/backups
 ```
 
 ### Backup validation failed
@@ -372,15 +385,15 @@ sudo systemctl status mastodon-backup.service -l
 sudo journalctl -u mastodon-backup.service --no-pager
 
 # Check file permissions
-ls -la /home/mastodon/mastodon-backup-script/backup.sh
+ls -la /var/lib/postgresql/mastodon-backup-script/backup.sh
 # Should be executable: -rwx------
 
 # Verify User/Group in service file
 sudo cat /etc/systemd/system/mastodon-backup.service | grep -E "User|Group"
-# Should match your Mastodon user
+# Should show: User=postgres, Group=postgres
 
 # Test script manually as the service user
-sudo -u mastodon /home/mastodon/mastodon-backup-script/backup.sh --dry-run
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 ```
 
 ## Security Best Practices
@@ -493,4 +506,104 @@ Then modify `mastodon-backup.service`:
 OnSuccess=mastodon-backup-notify@success.service
 OnFailure=mastodon-backup-notify@failure.service
 ```
+
+## Migration from mastodon to postgres User
+
+If you previously installed this script to run as the `mastodon` user, follow these steps to migrate:
+
+### Migration Steps
+
+1. **Stop the existing timer and service**
+   ```bash
+   sudo systemctl stop mastodon-backup.timer
+   sudo systemctl disable mastodon-backup.timer
+   ```
+
+2. **Configure rclone for postgres user**
+   ```bash
+   # Switch to postgres user
+   sudo -u postgres bash
+
+   # Run rclone config (use the same B2 credentials)
+   rclone config
+
+   # Verify configuration
+   rclone listremotes
+   rclone lsd remote_b2_account_credentials:
+
+   exit
+   ```
+
+3. **Move script to postgres user directory**
+   ```bash
+   # Create directory structure
+   sudo mkdir -p /var/lib/postgresql/mastodon-backup-script
+   sudo mkdir -p /var/lib/postgresql/backups
+
+   # Copy script files
+   sudo cp -r /home/mastodon/mastodon-backup-script/* /var/lib/postgresql/mastodon-backup-script/
+
+   # Set ownership
+   sudo chown -R postgres:postgres /var/lib/postgresql/mastodon-backup-script
+   sudo chown -R postgres:postgres /var/lib/postgresql/backups
+
+   # Set permissions
+   sudo chmod 700 /var/lib/postgresql/mastodon-backup-script/backup.sh
+   sudo chmod 600 /var/lib/postgresql/mastodon-backup-script/backup.conf
+   sudo chmod 700 /var/lib/postgresql/backups
+   ```
+
+4. **Update backup.conf**
+   ```bash
+   sudo -u postgres nano /var/lib/postgresql/mastodon-backup-script/backup.conf
+   # Update BACKUP_DIR to: /var/lib/postgresql/backups
+   ```
+
+5. **Update systemd service file**
+   ```bash
+   # Copy the updated service file
+   sudo cp /var/lib/postgresql/mastodon-backup-script/services/mastodon-backup.service /etc/systemd/system/
+
+   # Reload systemd
+   sudo systemctl daemon-reload
+   ```
+
+6. **Test the migration**
+   ```bash
+   # Run a dry-run test
+   sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
+
+   # Run a manual test backup
+   sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --manual
+   ```
+
+7. **Re-enable and start the timer**
+   ```bash
+   sudo systemctl enable mastodon-backup.timer
+   sudo systemctl start mastodon-backup.timer
+
+   # Check status
+   sudo systemctl status mastodon-backup.timer
+   systemctl list-timers --all | grep mastodon-backup
+   ```
+
+8. **Clean up old installation (optional)**
+   ```bash
+   # After verifying the new setup works correctly
+   sudo rm -rf /home/mastodon/mastodon-backup-script
+   sudo rm -rf /home/mastodon/backups  # Only if you've migrated all important backups
+
+   # Remove sudoers configuration if it exists
+   sudo visudo
+   # Remove line: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
+   ```
+
+### Verification Checklist
+
+- [ ] postgres user can access rclone configuration
+- [ ] postgres user can read/write to `/var/lib/postgresql/backups`
+- [ ] Test backup runs without sudo errors
+- [ ] Both PostgreSQL and Redis backups complete successfully
+- [ ] Files are uploaded to B2 correctly
+- [ ] Timer is scheduled and active
 
