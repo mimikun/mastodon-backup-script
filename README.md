@@ -103,7 +103,7 @@ rm /tmp/test.txt
 
 ```bash
 # Clone repository
-cd /home/mastodon/
+cd /var/lib/postgresql/
 git clone https://github.com/mimikun/mastodon-backup-script.git
 cd mastodon-backup-script
 
@@ -196,7 +196,7 @@ Options:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `MASTODON_HOME` | Mastodon installation directory | `/home/mastodon/live` |
-| `BACKUP_DIR` | Local backup storage directory | `/home/mastodon/backups` |
+| `BACKUP_DIR` | Local backup storage directory | `/var/lib/postgresql/backups` |
 | `PG_DBNAME` | PostgreSQL database name | `postgres` |
 | `RCLONE_REMOTE_DAILY` | rclone remote for daily backups | `remote_b2_account_credentials` |
 | `RCLONE_REMOTE_MONTHLY` | rclone remote for monthly backups | `remote_b2_account_credentials` |
@@ -312,9 +312,7 @@ sudo systemctl start redis
 **Solution**:
 
 ```bash
-# For PostgreSQL backup (requires sudo for postgres user)
-sudo visudo
-# Add: mastodon ALL=(postgres) NOPASSWD: /usr/bin/pg_dump
+# Script runs as postgres user, so no sudo configuration needed for pg_dump
 
 # For script execution
 chmod 700 backup.sh
@@ -372,15 +370,15 @@ sudo systemctl status mastodon-backup.service -l
 sudo journalctl -u mastodon-backup.service --no-pager
 
 # Check file permissions
-ls -la /home/mastodon/mastodon-backup-script/backup.sh
+ls -la /var/lib/postgresql/mastodon-backup-script/backup.sh
 # Should be executable: -rwx------
 
 # Verify User/Group in service file
 sudo cat /etc/systemd/system/mastodon-backup.service | grep -E "User|Group"
-# Should match your Mastodon user
+# Should be 'postgres' user
 
 # Test script manually as the service user
-sudo -u mastodon /home/mastodon/mastodon-backup-script/backup.sh --dry-run
+sudo -u postgres /var/lib/postgresql/mastodon-backup-script/backup.sh --dry-run
 ```
 
 ## Security Best Practices
